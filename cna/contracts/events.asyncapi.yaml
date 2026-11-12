@@ -1,0 +1,192 @@
+asyncapi: 3.0.0
+info:
+  title: Eventos CNA - Gitea
+  version: "2.0.0"
+  description: >
+    Canales de eventos publicados por event-bridge a partir de los Webhooks de Gitea,
+    y eventos propios de export-svc y media-svc.
+
+servers:
+  broker:
+    host: cna-node1:4222
+    protocol: nats-jetstream
+
+channels:
+  gitea.push:
+    address: gitea.push
+    messages:
+      pushEvent:
+        $ref: "#/components/messages/PushEvent"
+
+  gitea.issue.created:
+    address: gitea.issue.created
+    messages:
+      issueCreated:
+        $ref: "#/components/messages/IssueEvent"
+
+  gitea.issue.closed:
+    address: gitea.issue.closed
+    messages:
+      issueClosed:
+        $ref: "#/components/messages/IssueEvent"
+
+  gitea.pull_request.merged:
+    address: gitea.pull_request.merged
+    messages:
+      prMerged:
+        $ref: "#/components/messages/PullRequestEvent"
+
+  export.requested:
+    address: export.requested
+    messages:
+      exportRequested:
+        $ref: "#/components/messages/ExportEvent"
+
+  export.completed:
+    address: export.completed
+    messages:
+      exportCompleted:
+        $ref: "#/components/messages/ExportEvent"
+
+  media.uploaded:
+    address: media.uploaded
+    messages:
+      mediaUploaded:
+        $ref: "#/components/messages/MediaEvent"
+
+operations:
+  publishPush:
+    action: send
+    channel:
+      $ref: "#/channels/gitea.push"
+  subscribePush:
+    action: receive
+    channel:
+      $ref: "#/channels/gitea.push"
+
+components:
+  schemas:
+    EventEnvelope:
+      type: object
+      description: Sobre comun a todos los eventos del sistema.
+      required: [event_id, type, version, occurred_at, request_id, payload]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador unico del evento, usado para idempotencia en los consumidores.
+        type:
+          type: string
+          description: "Tipo de evento, ej: gitea.push, export.completed"
+        version:
+          type: string
+          description: "Version del esquema del evento, ej: v1"
+        occurred_at:
+          type: string
+          format: date-time
+          description: Timestamp ISO 8601 de cuando ocurrio el evento en el origen.
+        request_id:
+          type: string
+          description: Correlaciona el evento con el request HTTP que lo origino (propagado desde X-Request-ID).
+        payload:
+          type: object
+          description: Datos especificos del tipo de evento.
+
+  messages:
+    PushEvent:
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/EventEnvelope"
+          - type: object
+            properties:
+              payload:
+                type: object
+                properties:
+                  repo:
+                    type: string
+                  ref:
+                    type: string
+                  pusher:
+                    type: string
+                  commits:
+                    type: integer
+      examples:
+        - name: pushEjemplo
+          summary: Push a la rama main
+          payload:
+            event_id: "a1b2c3d4-0000-0000-0000-000000000001"
+            type: gitea.push
+            version: v1
+            occurred_at: "2026-11-12T20:40:00Z"
+            request_id: "req-9f3a"
+            payload:
+              repo: "equipo03/tp-integrador"
+              ref: "refs/heads/main"
+              pusher: "arqweb2026"
+              commits: 3
+
+    IssueEvent:
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/EventEnvelope"
+          - type: object
+            properties:
+              payload:
+                type: object
+                properties:
+                  repo:
+                    type: string
+                  issue_id:
+                    type: integer
+                  title:
+                    type: string
+                  actor:
+                    type: string
+
+    PullRequestEvent:
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/EventEnvelope"
+          - type: object
+            properties:
+              payload:
+                type: object
+                properties:
+                  repo:
+                    type: string
+                  pr_id:
+                    type: integer
+                  merged_by:
+                    type: string
+
+    ExportEvent:
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/EventEnvelope"
+          - type: object
+            properties:
+              payload:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  repo:
+                    type: string
+                  format:
+                    type: string
+
+    MediaEvent:
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/EventEnvelope"
+          - type: object
+            properties:
+              payload:
+                type: object
+                properties:
+                  media_id:
+                    type: string
+                  repo:
+                    type: string
+                  ref_type:
+                    type: string

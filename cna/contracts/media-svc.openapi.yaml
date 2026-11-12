@@ -1,0 +1,141 @@
+openapi: 3.1.0
+info:
+  title: media-svc
+  version: "2.0.0"
+  description: Gestion de adjuntos/release assets con miniaturas, almacenados en MinIO. Opcional (S4), suma a nota maxima de B2.
+  contact:
+    name: Equipo TP Integrador II
+
+servers:
+  - url: https://api.gitea.local/v2
+    description: Via API Gateway (Nginx) en VM-1
+
+tags:
+  - name: media
+  - name: health
+
+paths:
+  /media:
+    post:
+      summary: Subir un archivo (adjunto de issue o asset de release)
+      description: Recibe un archivo y dispara en background la generacion de miniatura.
+      operationId: uploadMedia
+      tags: [media]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                repo:
+                  type: string
+                ref_type:
+                  type: string
+                  enum: [issue, release]
+                ref_id:
+                  type: integer
+      responses:
+        "202":
+          description: Archivo recibido, miniatura se genera en background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaItem"
+        "400":
+          description: Archivo invalido o faltan campos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: MinIO no disponible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /media/{id}:
+    get:
+      summary: Obtener metadata y URL de un archivo
+      description: Devuelve la URL del archivo original y de su miniatura.
+      operationId: getMedia
+      tags: [media]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Metadata del archivo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaItem"
+        "404":
+          description: No encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Indica si el proceso esta vivo.
+      operationId: healthz
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Indica si el servicio esta listo (MinIO responde).
+      operationId: readyz
+      tags: [health]
+      responses:
+        "200":
+          description: Listo
+        "503":
+          description: No listo
+
+  /metrics:
+    get:
+      summary: Metricas Prometheus
+      description: Expone metricas en formato Prometheus.
+      operationId: metrics
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+components:
+  schemas:
+    MediaItem:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [processing, ready, failed]
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

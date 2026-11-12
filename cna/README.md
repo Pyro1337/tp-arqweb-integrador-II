@@ -1,16 +1,15 @@
 # CNA — TP Integrador II (Fases 5, 6 y 7)
 
-Continuación del TP Integrador I sobre Gitea. Evoluciona el monolito hacia una
-arquitectura cloud native mediante el patrón Strangler Fig.
+Esta carpeta es la continuación del TP Integrador I, ahora sobre Gitea. La idea es ir evolucionando el monolito hacia una arquitectura cloud native usando el patrón Strangler Fig, sin tocar el código fuente de Gitea en ningún momento.
 
-## Estructura
+## Cómo está organizado
 
-- `services/<servicio>/` — código, Dockerfile y pruebas de cada microservicio (S1-S4).
-- `contracts/` — contratos OpenAPI 3.1 y AsyncAPI 3.0.
-- `deploy/` — Docker Compose / stack / manifiestos de despliegue.
-- `observability/` — tableros de Grafana, reglas de alertas, configuración de Prometheus/Loki/Jaeger.
-- `docs/` — diagramas C4, secuencias, ADR-006 a ADR-010.
+- `services/<servicio>/` — el código, Dockerfile y tests de cada microservicio (S1 a S4).
+- `contracts/` — los contratos OpenAPI 3.1 y AsyncAPI 3.0.
+- `deploy/` — Docker Compose / stack / manifiestos para levantar todo.
+- `observability/` — tableros de Grafana, reglas de alertas y config de Prometheus/Loki/Jaeger.
+- `docs/` — diagramas C4, secuencias y los ADR del 006 al 010.
 
-## Despliegue
+## Cómo se levanta
 
-_(Completar en Bloque II con la instrucción de un solo comando, ej. `docker compose up -d`.)_
+_(Lo completamos en el Bloque II, cuando tengamos el comando único armado, tipo `docker compose up -d`.)_

@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: export-svc
+  version: "2.0.0"
+  description: Exportacion asincrona de reportes de actividad y repositorios de Gitea. API + cola + workers separados.
+  contact:
+    name: Equipo TP Integrador II
+
+servers:
+  - url: https://api.gitea.local/v2
+    description: Via API Gateway (Nginx) en VM-1
+
+tags:
+  - name: exports
+  - name: health
+
+paths:
+  /exports:
+    post:
+      summary: Solicitar una exportacion
+      description: Encola un job de exportacion y responde de inmediato con 202.
+      operationId: createExport
+      tags: [exports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+            example:
+              repo: "equipo03/tp-integrador"
+              format: csv
+              scope: activity
+      responses:
+        "202":
+          description: Job aceptado, se procesa en background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+              example:
+                job_id: "job-7788"
+                status: queued
+        "400":
+          description: Parametros invalidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Cola de jobs no disponible (Redis caido)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /exports/{id}:
+    get:
+      summary: Consultar estado de un job de exportacion
+      description: Devuelve el estado actual del job y, si esta listo, la URL prefirmada de descarga.
+      operationId: getExport
+      tags: [exports]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Estado del job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+              example:
+                job_id: "job-7788"
+                status: done
+                download_url: "https://minio.cna-node1.local/exports/job-7788.csv?X-Amz-Expires=3600"
+        "404":
+          description: Job no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Indica si el proceso esta vivo.
+      operationId: healthz
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Indica si el servicio esta listo (Redis y MinIO responden).
+      operationId: readyz
+      tags: [health]
+      responses:
+        "200":
+          description: Listo (Redis y MinIO responden)
+        "503":
+          description: No listo
+
+  /metrics:
+    get:
+      summary: Metricas Prometheus
+      description: Expone metricas en formato Prometheus.
+      operationId: metrics
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+components:
+  schemas:
+    ExportRequest:
+      type: object
+      required: [repo, format, scope]
+      properties:
+        repo:
+          type: string
+        format:
+          type: string
+          enum: [csv, pdf]
+        scope:
+          type: string
+          enum: [activity, repo_archive]
+    ExportJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, done, failed]
+        download_url:
+          type: string
+          format: uri
+        error:
+          type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

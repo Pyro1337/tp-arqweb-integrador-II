@@ -1,0 +1,147 @@
+openapi: 3.1.0
+info:
+  title: audit-svc
+  version: "2.0.0"
+  description: Registro de actividad armado 100% a partir de eventos consumidos del broker. No expone escritura, solo consulta.
+  contact:
+    name: Equipo TP Integrador II
+
+servers:
+  - url: https://api.gitea.local/v2
+    description: Via API Gateway (Nginx) en VM-1
+
+tags:
+  - name: audit
+  - name: health
+
+paths:
+  /audit:
+    get:
+      summary: Consultar registros de auditoria
+      description: Devuelve eventos de auditoria filtrables por entidad, id y rango de fechas.
+      operationId: getAudit
+      tags: [audit]
+      parameters:
+        - name: entity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [repo, issue, pull_request, push]
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Lista de eventos de auditoria
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEntry"
+              example:
+                total: 1
+                items:
+                  - event_id: "a1b2c3d4-0000-0000-0000-000000000001"
+                    entity: push
+                    actor: "arqweb2026"
+                    repo: "equipo03/tp-integrador"
+                    occurred_at: "2026-11-12T20:40:00Z"
+                    request_id: "req-9f3a"
+        "400":
+          description: Parametros invalidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No hay registros para esa entidad/id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Base de datos de auditoria no disponible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Indica si el proceso esta vivo.
+      operationId: healthz
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Indica si el servicio esta listo (base de datos responde).
+      operationId: readyz
+      tags: [health]
+      responses:
+        "200":
+          description: Listo
+        "503":
+          description: No listo
+
+  /metrics:
+    get:
+      summary: Metricas Prometheus
+      description: Expone metricas en formato Prometheus.
+      operationId: metrics
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+components:
+  schemas:
+    AuditEntry:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        entity:
+          type: string
+        actor:
+          type: string
+        repo:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

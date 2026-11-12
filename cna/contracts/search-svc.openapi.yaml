@@ -1,0 +1,139 @@
+openapi: 3.1.0
+info:
+  title: search-svc
+  version: "2.0.0"
+  description: Busqueda full-text sobre repositorios e issues de Gitea. Consume eventos de event-bridge y expone busqueda sincrona via API REST.
+  contact:
+    name: Equipo TP Integrador II
+
+servers:
+  - url: https://api.gitea.local/v2
+    description: Via API Gateway (Nginx) en VM-1
+
+tags:
+  - name: search
+  - name: health
+
+paths:
+  /search:
+    get:
+      summary: Busqueda full-text
+      description: Busca repositorios e issues indexados por texto completo.
+      operationId: search
+      tags: [search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          example: nginx
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [repo, issue, all]
+            default: all
+      responses:
+        "200":
+          description: Resultados encontrados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+              example:
+                query: nginx
+                total: 2
+                results:
+                  - type: issue
+                    id: 42
+                    title: "Configurar reverse proxy con nginx"
+                    repo: "equipo03/tp-integrador"
+                    url: "https://gitea.local/equipo03/tp-integrador/issues/42"
+                  - type: repo
+                    id: 7
+                    title: "nginx-configs"
+                    repo: "equipo03/nginx-configs"
+                    url: "https://gitea.local/equipo03/nginx-configs"
+        "400":
+          description: Falta el parametro q
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: El indice no esta disponible (Meilisearch caido)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "service_unavailable"
+                message: "El indice de busqueda no esta disponible"
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Indica si el proceso esta vivo.
+      operationId: healthz
+      tags: [health]
+      responses:
+        "200":
+          description: El proceso esta vivo
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Indica si el servicio esta listo (Meilisearch responde).
+      operationId: readyz
+      tags: [health]
+      responses:
+        "200":
+          description: Listo (Meilisearch responde)
+        "503":
+          description: No listo
+
+  /metrics:
+    get:
+      summary: Metricas en formato Prometheus
+      description: Expone metricas en formato Prometheus (contador de requests, histograma de latencia).
+      operationId: metrics
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+
+components:
+  schemas:
+    SearchResults:
+      type: object
+      properties:
+        query:
+          type: string
+        total:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [repo, issue]
+              id:
+                type: integer
+              title:
+                type: string
+              repo:
+                type: string
+              url:
+                type: string
+                format: uri
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
