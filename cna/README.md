@@ -12,4 +12,4 @@ Esta carpeta es la continuación del TP Integrador I, ahora sobre Gitea. La idea
 
 ## Cómo se levanta
 
-_(Lo completamos en el Bloque II, cuando tengamos el comando único armado, tipo `docker compose up -d`.)_
+_(lo vamos a completar luego en el Bloque II, cuando tengamos el comando único armado, tipo `docker compose up -d`.)_ -> De ese punto se encarga Jose 
