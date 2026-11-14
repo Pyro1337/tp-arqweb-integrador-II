@@ -1,0 +1,5 @@
+=== search-svc caido ===
+{"error":"service_unavailable","message":"El servicio no esta disponible"}
+HTTP 503
+=== Gitea (monolito) sigue respondiendo ===
+HTTP 200

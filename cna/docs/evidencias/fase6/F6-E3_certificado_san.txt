@@ -1,0 +1,3 @@
+            X509v3 Subject Alternative Name: 
+                DNS:equipo01.arqweb.test, DNS:api.equipo01.arqweb.test
+            X509v3 Subject Key Identifier: 

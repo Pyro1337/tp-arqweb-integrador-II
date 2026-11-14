@@ -1,0 +1,10 @@
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW IN    192.168.0.15              
+4222,5432,6379,7700,8001,8002,8003,8004,8005,9000,9001/tcp ALLOW IN    192.168.0.15              
+

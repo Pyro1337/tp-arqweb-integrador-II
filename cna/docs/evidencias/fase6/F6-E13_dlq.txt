@@ -1,0 +1,53 @@
+{
+    "total": 4,
+    "items": [
+        {
+            "received_at": "2026-11-14T19:38:35.172555+00:00",
+            "advisory": {
+                "type": "io.nats.jetstream.advisory.v1.max_deliver",
+                "id": "XQZXnjC9Ajq3ZNJVKpg4hw",
+                "timestamp": "2026-11-14T19:38:35.16716841Z",
+                "stream": "EVENTS",
+                "consumer": "audit-svc-gitea-push",
+                "stream_seq": 2,
+                "deliveries": 3
+            }
+        },
+        {
+            "received_at": "2026-11-14T19:38:35.211822+00:00",
+            "advisory": {
+                "type": "io.nats.jetstream.advisory.v1.max_deliver",
+                "id": "XQZXnjC9Ajq3ZNJVKpg4kc",
+                "timestamp": "2026-11-14T19:38:35.211535Z",
+                "stream": "EVENTS",
+                "consumer": "audit-svc-gitea-push",
+                "stream_seq": 3,
+                "deliveries": 3
+            }
+        },
+        {
+            "received_at": "2026-11-14T20:00:57.601137+00:00",
+            "advisory": {
+                "type": "io.nats.jetstream.advisory.v1.max_deliver",
+                "id": "XQZXnjC9Ajq3ZNJVKpg5ms",
+                "timestamp": "2026-11-14T20:00:57.585644374Z",
+                "stream": "EVENTS",
+                "consumer": "audit-svc-gitea-push",
+                "stream_seq": 8,
+                "deliveries": 3
+            }
+        },
+        {
+            "received_at": "2026-11-14T20:01:02.651894+00:00",
+            "advisory": {
+                "type": "io.nats.jetstream.advisory.v1.max_deliver",
+                "id": "XQZXnjC9Ajq3ZNJVKpg5pY",
+                "timestamp": "2026-11-14T20:01:02.651347687Z",
+                "stream": "EVENTS",
+                "consumer": "audit-svc-gitea-push",
+                "stream_seq": 9,
+                "deliveries": 3
+            }
+        }
+    ]
+}
