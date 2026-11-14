@@ -1,0 +1,8 @@
+{
+    "job_id": "job-a1a91a8a",
+    "status": "done",
+    "repo": "admin/demo-cna",
+    "format": "csv",
+    "scope": "activity",
+    "download_url": "http://192.168.0.20:9000/exports/job-a1a91a8a.csv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20261114%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261114T195154Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=5f11cfb98f2bb2cba20cbb77b2f499ddf0e503d33dfa72be5513008cc0793a8f"
+}

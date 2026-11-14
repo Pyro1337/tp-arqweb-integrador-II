@@ -1,0 +1,14 @@
+{
+    "query": "demo-cna",
+    "total": 1,
+    "results": [
+        {
+            "id": "admin_demo-cna",
+            "type": "repo",
+            "title": "demo-cna",
+            "repo": "admin/demo-cna",
+            "url": "http://192.168.0.15:3000/admin/demo-cna",
+            "description": ""
+        }
+    ]
+}

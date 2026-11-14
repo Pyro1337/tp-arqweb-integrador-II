@@ -1,0 +1,1 @@
+appuser | Memory: 268435456 | Healthcheck: [CMD-SHELL python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1]

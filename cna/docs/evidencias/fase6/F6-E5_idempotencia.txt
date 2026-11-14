@@ -1,0 +1,13 @@
+{
+    "total": 1,
+    "items": [
+        {
+            "event_id": "duplicado-test-0002",
+            "entity": "gitea.push",
+            "actor": "admin",
+            "repo": "admin/demo-cna",
+            "occurred_at": "2026-11-14T19:40:46.548709+00:00",
+            "request_id": "99c62491-cb68-4e50-bba1-24abc9dc9705"
+        }
+    ]
+}

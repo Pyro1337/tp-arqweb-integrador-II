@@ -1,0 +1,13 @@
+IMAGE                        ID             DISK USAGE   CONTENT SIZE   EXTRA
+audit-svc:1.0.0              6cdb6b3955ed        225MB         54.1MB   U    
+bitnamilegacy/minio:latest   451fe6858cb7        398MB         99.1MB   U    
+event-bridge:1.0.0           d1099a5d589d        208MB         50.4MB   U    
+export-svc:1.0.0             3902729619ac        237MB         56.4MB   U    
+export-worker:1.0.0          8756894ef98e        237MB         56.4MB   U    
+getmeili/meilisearch:v1.10   9d1b9b02fe6c        232MB         93.6MB   U    
+hello-world:latest           cf1b20a0c89a       25.9kB         9.49kB   U    
+media-svc:1.0.0              de4b297272a8        256MB           61MB   U    
+nats:2.10-alpine             b83efabe3e7d       38.7MB         10.5MB   U    
+postgres:16-alpine           f377d590e547        420MB          117MB   U    
+redis:7-alpine               7f7d30b7fdd0       58.5MB         16.9MB   U    
+search-svc:1.0.0             c562a237b2e9        210MB         50.9MB   U    

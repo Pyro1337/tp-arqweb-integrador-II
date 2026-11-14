@@ -1,0 +1,5 @@
+{
+    "id": "4e62ca492482",
+    "url": "http://192.168.0.20:9000/media/4e62ca492482/original?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20261114%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261114T195921Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=44181a4f0bfbb26a667a7ee8c87352d3f9f222565916321788a48595558f207e",
+    "status": "ready"
+}

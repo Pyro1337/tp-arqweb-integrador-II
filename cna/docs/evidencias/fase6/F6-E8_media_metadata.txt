@@ -1,0 +1,6 @@
+{
+    "id": "4e62ca492482",
+    "url": "http://192.168.0.20:9000/media/4e62ca492482/original?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20261114%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261114T195937Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=080c1933d03ec370290a683fc0e6bb70bd36d329257de86eaf33b41df06ea637",
+    "thumbnail_url": "http://192.168.0.20:9000/media/4e62ca492482/thumbnail?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20261114%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261114T195937Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=036cb678f1086e372c8008b34341f67d5706d202d1bb050f949199620efd22e5",
+    "status": "ready"
+}
