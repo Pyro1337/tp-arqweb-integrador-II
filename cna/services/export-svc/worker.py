@@ -2,6 +2,7 @@ import os
 import io
 import json
 import csv
+import socket
 import time
 import logging
 import sys
@@ -21,6 +22,9 @@ MINIO_PUBLIC_ENDPOINT = os.environ.get("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
 BUCKET = "exports"
+# solo para chaos testing (X3): simula un job que tarda, para poder matar el worker
+# a mitad de camino y verificar que otro lo retoma. 0 = sin demora (comportamiento normal)
+TEST_DELAY = float(os.environ.get("EXPORT_WORKER_TEST_DELAY", "0"))
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 log = logging.getLogger("export-worker")
@@ -49,19 +53,30 @@ def get_minio_public_client():
     )
 
 
+WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+HEARTBEAT_TTL = 15  # segundos: si un worker muere a mitad de un job, el heartbeat
+                     # expira y otro worker lo detecta como huerfano y lo reencola
+
+
 def process_job(r, client, job_id):
     raw = r.get(f"job:{job_id}")
     if not raw:
         return
     job = json.loads(raw)
     job["status"] = "running"
+    job["worker"] = WORKER_ID
     r.set(f"job:{job_id}", json.dumps(job))
-    jlog(level="info", message="procesando job", job_id=job_id)
+    r.set(f"job:heartbeat:{job_id}", WORKER_ID, ex=HEARTBEAT_TTL)
+    jlog(level="info", message="procesando job", job_id=job_id, worker=WORKER_ID)
 
     try:
         headers = {"Authorization": f"token {GITEA_TOKEN}"} if GITEA_TOKEN else {}
         resp = httpx.get(f"{GITEA_URL}/api/v1/repos/{job['repo']}/issues", headers=headers, timeout=15)
         issues = resp.json() if resp.status_code == 200 else []
+
+        if TEST_DELAY:
+            jlog(level="info", message=f"demora de prueba de {TEST_DELAY}s antes de terminar", job_id=job_id)
+            time.sleep(TEST_DELAY)
 
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -78,24 +93,38 @@ def process_job(r, client, job_id):
         job["status"] = "done"
         job["download_url"] = url
         r.set(f"job:{job_id}", json.dumps(job))
-        jlog(level="info", message="job completado", job_id=job_id)
+        jlog(level="info", message="job completado", job_id=job_id, worker=WORKER_ID)
     except Exception as e:
         job["status"] = "failed"
         job["error"] = str(e)
         r.set(f"job:{job_id}", json.dumps(job))
-        jlog(level="error", message=f"job fallido: {e}", job_id=job_id)
+        jlog(level="error", message=f"job fallido: {e}", job_id=job_id, worker=WORKER_ID)
+    finally:
+        r.lrem("export_processing", 0, job_id)
+        r.delete(f"job:heartbeat:{job_id}")
+
+
+def reencolar_huerfanos(r):
+    # cualquier worker, antes de tomar un job nuevo, revisa si quedo algun job
+    # "en proceso" cuyo heartbeat ya vencio (el worker que lo tenia murio a mitad
+    # de camino) y lo devuelve a la cola principal para que otro lo retome.
+    for job_id in r.lrange("export_processing", 0, -1):
+        if not r.exists(f"job:heartbeat:{job_id}"):
+            if r.lrem("export_processing", 1, job_id):
+                r.rpush("export_queue", job_id)
+                jlog(level="warning", message="job huerfano reencolado", job_id=job_id, worker=WORKER_ID)
 
 
 def main():
     r = redis.from_url(REDIS_URL, decode_responses=True)
     client = get_minio_client()
-    jlog(level="info", message="worker iniciado")
+    jlog(level="info", message="worker iniciado", worker=WORKER_ID)
     while True:
-        item = r.brpop("export_queue", timeout=5)
+        reencolar_huerfanos(r)
+        item = r.brpoplpush("export_queue", "export_processing", timeout=5)
         if item is None:
             continue
-        _, job_id = item
-        process_job(r, client, job_id)
+        process_job(r, client, item)
 
 
 if __name__ == "__main__":

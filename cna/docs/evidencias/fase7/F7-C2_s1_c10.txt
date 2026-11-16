@@ -1,0 +1,58 @@
+This is ApacheBench, Version 2.3 <$Revision: 1923142 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking api.equipo01.arqweb.test (be patient)
+Completed 100 requests
+Completed 200 requests
+Completed 300 requests
+Completed 400 requests
+Completed 500 requests
+Completed 600 requests
+Completed 700 requests
+Completed 800 requests
+Completed 900 requests
+Completed 1000 requests
+Finished 1000 requests
+
+
+Server Software:        nginx
+Server Hostname:        api.equipo01.arqweb.test
+Server Port:            443
+SSL/TLS Protocol:       TLSv1.3,TLS_AES_256_GCM_SHA384,2048,256
+TLS Server Name:        api.equipo01.arqweb.test
+
+Document Path:          /v2/search?q=demo
+Document Length:        184 bytes
+
+Concurrency Level:      10
+Time taken for tests:   103.173 seconds
+Complete requests:      1000
+Failed requests:        150
+   (Connect: 0, Receive: 0, Length: 150, Exceptions: 0)
+Non-2xx responses:      150
+Keep-Alive requests:    1000
+Total transferred:      657700 bytes
+HTML transferred:       167500 bytes
+Requests per second:    9.69 [#/sec] (mean)
+Time per request:       1031.726 [ms] (mean)
+Time per request:       103.173 [ms] (mean, across all concurrent requests)
+Transfer rate:          6.23 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   1.4      0      22
+Processing:    55 1005 1722.5    219    5015
+Waiting:       55 1005 1722.5    219    5015
+Total:         55 1005 1722.8    219    5024
+
+Percentage of the requests served within a certain time (ms)
+  50%    219
+  66%    372
+  75%    538
+  80%    711
+  90%   5011
+  95%   5013
+  98%   5014
+  99%   5015
+ 100%   5024 (longest request)

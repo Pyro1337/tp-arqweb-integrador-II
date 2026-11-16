@@ -1,0 +1,32 @@
+Experimento X2 - audit-svc pausado 2 min mientras se publicaban 20 eventos
+
+Hipotesis: al volver audit-svc, procesa los 20 eventos acumulados sin perder ninguno (CA-6).
+
+Procedimiento:
+1. docker pause deploy-audit-svc-1 (simula servicio caido/sin procesar)
+2. Se publicaron 20 eventos push via event-bridge mientras estaba pausado
+3. Se espero la ventana de 2 minutos
+4. docker unpause deploy-audit-svc-1
+
+Resultado obtenido: total de eventos x2 encontrados en audit-svc = 20
+Cero perdida: los 20 llegaron, NATS JetStream los retuvo en el stream mientras el consumidor no podia hacer ack.
+ - x2-pagina-01 2026-11-15T22:04:30.446087+00:00
+ - x2-pagina-02 2026-11-15T22:04:30.504467+00:00
+ - x2-pagina-03 2026-11-15T22:04:30.523840+00:00
+ - x2-pagina-04 2026-11-15T22:04:30.550212+00:00
+ - x2-pagina-05 2026-11-15T22:04:30.558672+00:00
+ - x2-pagina-06 2026-11-15T22:04:30.567651+00:00
+ - x2-pagina-07 2026-11-15T22:04:30.579509+00:00
+ - x2-pagina-08 2026-11-15T22:04:30.604224+00:00
+ - x2-pagina-09 2026-11-15T22:04:30.619808+00:00
+ - x2-pagina-10 2026-11-15T22:04:30.635374+00:00
+ - x2-pagina-11 2026-11-15T22:04:30.650844+00:00
+ - x2-pagina-12 2026-11-15T22:04:30.663436+00:00
+ - x2-pagina-13 2026-11-15T22:04:30.672743+00:00
+ - x2-pagina-14 2026-11-15T22:04:30.688429+00:00
+ - x2-pagina-15 2026-11-15T22:04:30.705645+00:00
+ - x2-pagina-16 2026-11-15T22:04:30.722863+00:00
+ - x2-pagina-17 2026-11-15T22:04:30.733639+00:00
+ - x2-pagina-18 2026-11-15T22:04:30.741649+00:00
+ - x2-pagina-19 2026-11-15T22:04:30.759804+00:00
+ - x2-pagina-20 2026-11-15T22:04:30.778903+00:00

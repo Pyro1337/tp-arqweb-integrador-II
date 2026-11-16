@@ -4,12 +4,22 @@ import json
 import uuid
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import Response
 from minio import Minio
 from PIL import Image
 import nats
+from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
+
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Peticiones HTTP recibidas", ["method", "path", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds", "Duracion de las peticiones HTTP", ["method", "path"]
+)
 
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "minio:9000")
 MINIO_PUBLIC_ENDPOINT = os.environ.get("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
@@ -25,6 +35,17 @@ app = FastAPI(title="media-svc")
 client = None
 public_client = None
 nc = None
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+    path = request.url.path
+    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=path).observe(duration)
+    return response
 
 
 def jlog(**kwargs):
@@ -62,7 +83,7 @@ async def readyz():
 
 @app.get("/metrics")
 async def metrics():
-    return "media_uploaded_total 0\n"
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/v2/media", status_code=202)

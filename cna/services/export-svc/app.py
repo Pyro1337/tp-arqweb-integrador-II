@@ -3,19 +3,41 @@ import json
 import uuid
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 
 import redis.asyncio as redis
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
+from prometheus_client import Counter, Histogram, Gauge, CONTENT_TYPE_LATEST, generate_latest
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://export-redis:6379/0")
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 log = logging.getLogger("export-svc-api")
 
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Peticiones HTTP recibidas", ["method", "path", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds", "Duracion de las peticiones HTTP", ["method", "path"]
+)
+EXPORT_JOBS = Gauge("export_jobs_total", "Jobs de exportacion acumulados (claves en redis)")
+
 app = FastAPI(title="export-svc")
 r = None
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+    path = request.url.path
+    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=path).observe(duration)
+    return response
 
 
 def jlog(**kwargs):
@@ -53,7 +75,8 @@ async def readyz():
 @app.get("/metrics")
 async def metrics():
     total = await r.dbsize()
-    return f"export_jobs_total {total}\n"
+    EXPORT_JOBS.set(total)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/v2/exports", status_code=202)

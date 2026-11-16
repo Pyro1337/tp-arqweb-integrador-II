@@ -1,0 +1,93 @@
+{
+    "status": "success",
+    "data": {
+        "groups": [
+            {
+                "name": "cna-alerts",
+                "file": "/etc/prometheus/alerts.yml",
+                "rules": [
+                    {
+                        "state": "firing",
+                        "name": "DLQConMensajes",
+                        "query": "dlq_messages_total > 0",
+                        "duration": 10,
+                        "keepFiringFor": 0,
+                        "labels": {
+                            "severity": "warning"
+                        },
+                        "annotations": {
+                            "description": "event-bridge reporta {{ $value }} mensajes en la DLQ. Revisar que el consumidor afectado este sano.",
+                            "summary": "Hay mensajes en la DLQ"
+                        },
+                        "alerts": [
+                            {
+                                "labels": {
+                                    "alertname": "DLQConMensajes",
+                                    "instance": "event-bridge:8000",
+                                    "job": "event-bridge",
+                                    "severity": "warning"
+                                },
+                                "annotations": {
+                                    "description": "event-bridge reporta 1 mensajes en la DLQ. Revisar que el consumidor afectado este sano.",
+                                    "summary": "Hay mensajes en la DLQ"
+                                },
+                                "state": "firing",
+                                "activeAt": "2026-11-16T02:09:55.344324412Z",
+                                "value": "1e+00"
+                            }
+                        ],
+                        "health": "ok",
+                        "evaluationTime": 0.001043328,
+                        "lastEvaluation": "2026-11-16T02:10:25.361464781Z",
+                        "type": "alerting"
+                    },
+                    {
+                        "state": "inactive",
+                        "name": "TasaDeErrores5xxAlta",
+                        "query": "sum by (job) (rate(http_requests_total{status=~\"5..\"}[1m])) / sum by (job) (rate(http_requests_total[1m])) > 0.05",
+                        "duration": 60,
+                        "keepFiringFor": 0,
+                        "labels": {
+                            "severity": "critical"
+                        },
+                        "annotations": {
+                            "description": "Mas del 5% de las peticiones a {{ $labels.job }} estan devolviendo 5xx en el ultimo minuto.",
+                            "summary": "Tasa de errores 5xx alta en {{ $labels.job }}"
+                        },
+                        "alerts": [],
+                        "health": "ok",
+                        "evaluationTime": 0.000179092,
+                        "lastEvaluation": "2026-11-16T02:10:25.36251362Z",
+                        "type": "alerting"
+                    }
+                ],
+                "interval": 10,
+                "limit": 0,
+                "evaluationTime": 0.001240704,
+                "lastEvaluation": "2026-11-16T02:10:25.361453679Z"
+            }
+        ]
+    }
+}
+{
+    "status": "success",
+    "data": {
+        "alerts": [
+            {
+                "labels": {
+                    "alertname": "DLQConMensajes",
+                    "instance": "event-bridge:8000",
+                    "job": "event-bridge",
+                    "severity": "warning"
+                },
+                "annotations": {
+                    "description": "event-bridge reporta 1 mensajes en la DLQ. Revisar que el consumidor afectado este sano.",
+                    "summary": "Hay mensajes en la DLQ"
+                },
+                "state": "firing",
+                "activeAt": "2026-11-16T02:09:55.344324412Z",
+                "value": "1e+00"
+            }
+        ]
+    }
+}

@@ -1,0 +1,24 @@
+groups:
+  - name: cna-alerts
+    rules:
+      - alert: DLQConMensajes
+        expr: dlq_messages_total > 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hay mensajes en la DLQ"
+          description: "event-bridge reporta {{ $value }} mensajes en la DLQ. Revisar que el consumidor afectado este sano."
+
+      - alert: TasaDeErrores5xxAlta
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[1m])) by (job)
+          /
+          sum(rate(http_requests_total[1m])) by (job)
+          > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tasa de errores 5xx alta en {{ $labels.job }}"
+          description: "Mas del 5% de las peticiones a {{ $labels.job }} estan devolviendo 5xx en el ultimo minuto."

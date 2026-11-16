@@ -2,13 +2,39 @@ import os
 import json
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 
 import asyncio
 import asyncpg
 import nats
 from nats.js.api import ConsumerConfig
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
+from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
+
+from opentelemetry import trace, propagate
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+JAEGER_OTLP_ENDPOINT = os.environ.get("JAEGER_OTLP_ENDPOINT", "jaeger:4317")
+trace.set_tracer_provider(TracerProvider(resource=Resource.create({"service.name": "audit-svc"})))
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint=JAEGER_OTLP_ENDPOINT, insecure=True))
+)
+tracer = trace.get_tracer("audit-svc")
+
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Peticiones HTTP recibidas", ["method", "path", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds", "Duracion de las peticiones HTTP", ["method", "path"]
+)
+from prometheus_client import Gauge
+AUDIT_ENTRIES = Gauge("audit_entries_total", "Registros acumulados de auditoria")
 
 DB_DSN = os.environ.get("DB_DSN", "postgresql://audit:audit@audit-db:5432/audit")
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
@@ -17,9 +43,21 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 log = logging.getLogger("audit-svc")
 
 app = FastAPI(title="audit-svc")
+FastAPIInstrumentor.instrument_app(app)
 pool = None
 nc = None
 ready = {"db": False, "nats": False}
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+    path = request.url.path
+    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=path).observe(duration)
+    return response
 
 SUBJECTS = ["gitea.push", "gitea.issue.created", "gitea.issue.closed", "gitea.pull_request.merged"]
 
@@ -31,8 +69,14 @@ def jlog(**kwargs):
 
 
 async def handle_event(msg):
+    envelope = json.loads(msg.data.decode())
+    ctx = propagate.extract(envelope.get("trace_context", {}))
+    with tracer.start_as_current_span("audit-svc.handle_event", context=ctx):
+        await _handle_event_impl(msg, envelope)
+
+
+async def _handle_event_impl(msg, envelope):
     try:
-        envelope = json.loads(msg.data.decode())
         async with pool.acquire() as conn:
             inserted = await conn.fetchval(
                 """
@@ -115,7 +159,8 @@ async def readyz():
 async def metrics():
     async with pool.acquire() as conn:
         total = await conn.fetchval("SELECT count(*) FROM audit_log")
-    return f"audit_entries_total {total}\n"
+    AUDIT_ENTRIES.set(total)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/v2/audit")

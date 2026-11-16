@@ -3,13 +3,36 @@ import json
 import logging
 import sys
 import asyncio
+import time
 from datetime import datetime, timezone
 
-import asyncio
 import httpx
 import nats
 from nats.js.api import ConsumerConfig
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
+from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
+
+from opentelemetry import trace, propagate
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+JAEGER_OTLP_ENDPOINT = os.environ.get("JAEGER_OTLP_ENDPOINT", "jaeger:4317")
+trace.set_tracer_provider(TracerProvider(resource=Resource.create({"service.name": "search-svc"})))
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint=JAEGER_OTLP_ENDPOINT, insecure=True))
+)
+tracer = trace.get_tracer("search-svc")
+
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Peticiones HTTP recibidas", ["method", "path", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds", "Duracion de las peticiones HTTP", ["method", "path"]
+)
 
 GITEA_URL = os.environ.get("GITEA_URL", "http://host.docker.internal:3000")
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "")
@@ -18,13 +41,89 @@ MEILI_KEY = os.environ.get("MEILI_KEY", "masterKey123")
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
 INDEX = "gitea_content"
 
+# timeout corto a proposito: si Gitea tarda mas que esto (ej. con latencia de red
+# artificial), queremos que falle rapido en vez de quedarse colgado ocupando el hilo
+GITEA_TIMEOUT = float(os.environ.get("GITEA_TIMEOUT", "1.5"))
+CIRCUIT_FAILURE_THRESHOLD = 3   # fallas consecutivas para abrir el circuito
+CIRCUIT_COOLDOWN = 15           # segundos que el circuito queda abierto
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 log = logging.getLogger("search-svc")
 
 app = FastAPI(title="search-svc")
+FastAPIInstrumentor.instrument_app(app)
 nc = None
 ready = {"meili": False, "nats": False}
 seen_events = set()
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+    path = request.url.path
+    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=path).observe(duration)
+    return response
+
+
+class CircuitBreaker:
+    """Circuit breaker simple: tras N fallas seguidas, se 'abre' y rechaza
+    llamadas sin siquiera intentarlas durante COOLDOWN segundos, para no
+    saturar hilos/conexiones contra un servicio que ya sabemos que esta lento o caido."""
+
+    def __init__(self, threshold, cooldown):
+        self.threshold = threshold
+        self.cooldown = cooldown
+        self.failures = 0
+        self.opened_at = None
+
+    def is_open(self):
+        if self.opened_at is None:
+            return False
+        if time.monotonic() - self.opened_at >= self.cooldown:
+            # paso el cooldown: dejamos pasar un intento de prueba (half-open)
+            self.opened_at = None
+            self.failures = 0
+            return False
+        return True
+
+    def record_success(self):
+        self.failures = 0
+        self.opened_at = None
+
+    def record_failure(self):
+        self.failures += 1
+        if self.failures >= self.threshold:
+            self.opened_at = time.monotonic()
+
+
+gitea_circuit = CircuitBreaker(CIRCUIT_FAILURE_THRESHOLD, CIRCUIT_COOLDOWN)
+
+
+async def get_repo_con_reintentos(client, repo):
+    """Llama a la API de Gitea con timeout corto, backoff exponencial (3 intentos:
+    0.5s, 1s, 2s de espera entre reintentos) y circuit breaker."""
+    if gitea_circuit.is_open():
+        jlog(level="warning", message="circuito abierto, no se intenta llamar a Gitea", repo=repo)
+        raise RuntimeError("circuit_open")
+
+    headers = {"Authorization": f"token {GITEA_TOKEN}"} if GITEA_TOKEN else {}
+    delays = [0.5, 1, 2]
+    last_exc = None
+    for attempt, delay in enumerate([0] + delays):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            resp = await client.get(f"{GITEA_URL}/api/v1/repos/{repo}", headers=headers, timeout=GITEA_TIMEOUT)
+            gitea_circuit.record_success()
+            return resp
+        except Exception as e:
+            last_exc = e
+            jlog(level="warning", message=f"timeout/error llamando a Gitea, intento {attempt + 1}: {e}", repo=repo)
+    gitea_circuit.record_failure()
+    raise last_exc
 
 
 def jlog(**kwargs):
@@ -48,8 +147,16 @@ async def ensure_index():
 
 
 async def handle_push(msg):
+    envelope = json.loads(msg.data.decode())
+    # continuamos la misma traza que arranco event-bridge, usando el traceparent
+    # que viajo adentro del sobre del evento
+    ctx = propagate.extract(envelope.get("trace_context", {}))
+    with tracer.start_as_current_span("search-svc.handle_push", context=ctx):
+        await _handle_push_impl(msg, envelope)
+
+
+async def _handle_push_impl(msg, envelope):
     try:
-        envelope = json.loads(msg.data.decode())
         event_id = envelope["event_id"]
         if event_id in seen_events:
             await msg.ack()
@@ -59,10 +166,10 @@ async def handle_push(msg):
         repo = envelope["payload"]["repo"]
         request_id = envelope.get("request_id")
 
-        async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"token {GITEA_TOKEN}"} if GITEA_TOKEN else {}
-            resp = await client.get(f"{GITEA_URL}/api/v1/repos/{repo}", headers=headers, timeout=10)
-            data = resp.json() if resp.status_code == 200 else {}
+        with tracer.start_as_current_span("search-svc.consultar_gitea_api"):
+            async with httpx.AsyncClient() as client:
+                resp = await get_repo_con_reintentos(client, repo)
+                data = resp.json() if resp.status_code == 200 else {}
 
         doc = {
             "id": repo.replace("/", "_"),
@@ -72,9 +179,10 @@ async def handle_push(msg):
             "url": data.get("html_url", f"{GITEA_URL}/{repo}"),
             "description": data.get("description", ""),
         }
-        async with httpx.AsyncClient() as client:
-            await client.post(f"{MEILI_URL}/indexes/{INDEX}/documents", json=[doc],
-                               headers=await meili_headers(), timeout=5)
+        with tracer.start_as_current_span("search-svc.indexar_meilisearch"):
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{MEILI_URL}/indexes/{INDEX}/documents", json=[doc],
+                                   headers=await meili_headers(), timeout=5)
 
         jlog(level="info", message="reindexado", repo=repo, event_id=event_id, request_id=request_id)
         await msg.ack()
@@ -119,7 +227,7 @@ async def readyz():
 
 @app.get("/metrics")
 async def metrics():
-    return f"search_indexed_total {len(seen_events)}\n"
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/v2/search")

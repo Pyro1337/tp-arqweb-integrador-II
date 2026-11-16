@@ -1,0 +1,52 @@
+C2 - Escalabilidad y rendimiento comparado
+
+=== Recursos de VM-2 ===
+docker info: CPUs: 1, Total Memory: 1.604GiB
+(dato clave para interpretar los resultados de abajo)
+
+=== Benchmark: monolito (Gitea, /explore/repos?q=demo) ===
+c=10, n=1000: 119.28 req/s, 115 'failed' (todos por Length, contenido
+              dinamico de Gitea - no son errores reales)
+c=50, n=1000: 424.15 req/s, 1195 failed (832 Length + 363 Exceptions reales
+              - el monolito empieza a sufrir con mas concurrencia)
+
+=== Benchmark: S1 search-svc (via gateway, /v2/search) ===
+c=10, n=1000: 9.69 req/s, 150 non-2xx (503 - Meilisearch/search-svc no dan
+              abasto con 10 conexiones simultaneas)
+c=50, n=1000: 10.54 req/s, 998 non-2xx (degradacion severa, practicamente
+              todo falla)
+
+Nota: para esta comparacion se subio temporalmente el rate limit del
+gateway (de 10r/s a 1000r/s) para medir la capacidad real del servicio, no
+nuestro propio limitador (eso ya se probo aparte en F6-E15). Se revirtio al
+valor de produccion despues de medir.
+
+Hallazgo: S1 es mucho mas lento que el monolito bajo carga. Causa raiz:
+search-svc abre una conexion nueva (httpx.AsyncClient()) por cada request
+hacia Meilisearch en vez de reusar un cliente persistente, y ademas compite
+por el unico CPU de VM-2 con otros 12 contenedores. El costo de la
+arquitectura distribuida (saltos de red + contencion de recursos) es mayor
+que el beneficio en este escenario de carga sintetica con una sola VM de 1
+vCPU. Esto se documenta como limitacion conocida.
+
+=== Escalado de export-worker (1 -> 3 replicas) ===
+Primera corrida: se lanzo una rafaga de 50 exportaciones justo despues de
+los benchmarks anteriores (VM-2 todavia saturada por el benchmark de S1
+c=50) - tardo 3m40s solo en MANDAR las 50 solicitudes (no en completarlas),
+y export-svc quedo 'unhealthy' temporalmente.
+
+Segunda corrida: tras reiniciar las VMs (sistema en reposo, sin contencion),
+la misma rafaga de 50 exportaciones se mando en ~1.4s y se completaron
+(con 3 workers) en menos de 15 segundos.
+
+Conclusion: el cuello de botella no es el diseno de colas/workers (que ya
+funciona bien, ver F7-X3), sino la capacidad total de CPU de un solo
+vCPU compartido entre 13 contenedores. Con mas CPU disponible, el sistema
+escala correctamente.
+
+=== docker stats (snapshot en reposo) ===
+Ver F7-C2_docker_stats.txt
+
+Hallazgo adicional: minio esta usando 251.7MiB de un limite de 256MiB
+(98% de su limite de memoria) - riesgo de OOM si crece el uso. Se recomienda
+subir su limite a 384-512MiB si la VM tiene margen de RAM.

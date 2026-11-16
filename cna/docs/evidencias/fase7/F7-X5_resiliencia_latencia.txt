@@ -1,0 +1,36 @@
+Experimento X5 - latencia artificial de 2s hacia la API de Gitea (tc netem)
+
+Hipotesis: con latencia artificial hacia Gitea, search-svc aplica timeout
+corto, reintentos con backoff exponencial, y no se satura ni se cae.
+
+Procedimiento:
+1. sudo tc qdisc add dev enp0s3 root netem delay 2000ms (en VM-2, hacia toda
+   la red, incluyendo el camino a la API de Gitea en VM-1)
+2. Se publico un evento push via event-bridge
+3. Se observaron los logs de search-svc y el endpoint /dlq de event-bridge
+
+Codigo agregado para este experimento (no existia antes): search-svc ahora
+tiene un timeout corto configurable (GITEA_TIMEOUT=1.5s, menor a la latencia
+inducida de 2s para forzar el timeout), reintentos con backoff exponencial
+(0.5s, 1s, 2s entre intentos) y un circuit breaker que abre despues de 3
+fallas seguidas y deja de intentar llamadas por 15s, para no saturar hilos
+ni conexiones contra un servicio que ya se sabe que esta lento.
+
+Resultado obtenido (logs reales de search-svc):
+22:25:52 intento 1 -> timeout
+22:25:54 intento 2 -> timeout (tras esperar 0.5s de backoff)
+22:26:02 intento 3 -> timeout (tras esperar 1s de backoff)
+22:26:06 intento 4 -> timeout (tras esperar 2s de backoff)
+22:26:06 evento sin ack -> queda para reintento de NATS
+
+El mensaje se reintento a nivel de NATS JetStream y, al agotar los 3
+reintentos de entrega (deliveries=3), termino en la DLQ de event-bridge
+(evidencia tambien registrada en F7-E13/F6-E13):
+  consumer: search-svc, stream_seq: 30, deliveries: 3
+
+Pese a toda esta carga de reintentos, search-svc se mantuvo healthy en todo
+momento (confirmado con docker ps y /healthz respondiendo 200 OK durante
+y despues del experimento) - no se saturo ni se colgo.
+
+Limpieza: sudo tc qdisc del dev enp0s3 root (se quita la latencia artificial
+al terminar la prueba).

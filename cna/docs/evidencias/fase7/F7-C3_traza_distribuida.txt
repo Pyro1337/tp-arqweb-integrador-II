@@ -1,0 +1,11 @@
+Traza completa: edicion -> indexacion -> auditoria
+traceID: 5987e93a059e231804fd029cd4ee90d7
+
+  [event-bridge] POST /webhook/{secret} - 287.70 ms
+  [event-bridge] POST /webhook/{secret} http receive - 32.51 ms
+  [event-bridge] POST /webhook/{secret} http send - 43.89 ms
+  [event-bridge] POST /webhook/{secret} http send - 28.70 ms
+  [audit-svc] audit-svc.handle_event - 103.09 ms
+  [search-svc] search-svc.handle_push - 3216.28 ms
+  [search-svc] search-svc.consultar_gitea_api - 1961.77 ms
+  [search-svc] search-svc.indexar_meilisearch - 1235.03 ms

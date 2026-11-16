@@ -1,0 +1,53 @@
+F7-C4 - Rotacion de credenciales (GITEA_TOKEN) sin downtime
+
+Hipotesis: si rotamos una credencial compartida (el token de la API de Gitea que
+usan search-svc y audit-svc) y recreamos los contenedores con el valor nuevo, los
+servicios que tienen varias replicas no deberian perder ningun trabajo en curso,
+mientras que los que tienen una sola replica van a sufrir un corte real.
+
+Procedimiento:
+1. Se revoco el token viejo de Gitea desde la UI de administracion y se genero uno
+   nuevo con los mismos scopes (repository:Read, issue:Read).
+2. Se actualizo GITEA_TOKEN en cna/deploy/.env en VM-2 (valor real, no se commitea
+   por estar en .gitignore).
+3. export-worker (3 replicas): se encolo un job de prueba (job-b3474454) justo
+   antes de reconstruir las 3 replicas con 'docker compose up -d --build --scale
+   export-worker=3 export-worker'.
+4. search-svc (1 sola replica, puerto fijo 8002): se midio con un loop de curl cada
+   100ms contra /healthz, arrancado justo antes de 'docker compose up -d
+   --force-recreate --no-deps search-svc', usando una imagen ya construida de
+   antemano para que el build no contamine la medicion.
+
+Resultado:
+
+export-worker: el job de prueba (job-b3474454) llego a status "done" sin perderse,
+pese a que las 3 replicas se recrearon una por una durante el proceso. Cero perdida
+de servicio.
+
+search-svc: las 150 mediciones durante la ventana de recreacion (desde las 03:10:42
+hasta las 03:10:59, unos 17 segundos de mediciones, mas el tiempo de arranque
+posterior de la app) devolvieron codigo "000" (conexion rechazada/timeout), es
+decir, estuvo completamente inalcanzable durante toda la ventana observada.
+'docker inspect' confirma StartedAt: 2026-11-16T03:10:55Z, pero el puerto no
+empieza a responder sino varios segundos despues de esa marca, porque el arranque
+de la app (conexion a NATS, creacion del indice en Meilisearch) bloquea el bind
+del puerto hasta terminar. Downtime real estimado: ~20 segundos.
+
+Se intento tambien escalar search-svc a 2 replicas para hacer lo mismo que con
+export-worker, pero fallo con 'Bind for 0.0.0.0:8002 failed: port is already
+allocated', porque el puerto esta mapeado fijo al host en el compose.
+
+Conclusion / causa raiz:
+La diferencia entre ambos servicios no es el proceso de rotacion en si, sino el
+diseno de cada uno: export-worker no expone puerto fijo (los workers solo leen de
+una cola Redis), asi que escalar a varias replicas es trivial y da tolerancia real
+a fallos durante un despliegue. search-svc expone un puerto HTTP fijo mapeado al
+host sin balanceador adelante, asi que solo puede correr una instancia a la vez.
+
+Esto se documenta como hallazgo de seguridad/disponibilidad (ver
+cna/docs/REGISTRO_HALLAZGOS.md, hallazgo H5): rotar credenciales es una buena
+practica de seguridad que deberiamos poder hacer sin downtime, pero la arquitectura
+actual de search-svc no lo permite. La solucion real (varias replicas detras de un
+upstream de Nginx, o un orquestador con rolling update) queda fuera del alcance de
+este TP por los recursos limitados de la VM (ver ADR-008), y se acepta como riesgo
+conocido en vez de forzar un cambio de arquitectura de ultimo momento.

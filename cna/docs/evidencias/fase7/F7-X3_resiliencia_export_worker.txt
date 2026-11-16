@@ -1,0 +1,29 @@
+Experimento X3 - matar un worker de export-svc a mitad de un job
+
+Hipotesis: si un worker muere mientras procesa un job, el job vuelve a la
+cola (via el heartbeat que vence) y otro worker lo completa, sin quedar
+colgado para siempre en estado running.
+
+Procedimiento:
+1. Escalamos export-worker a 2 replicas.
+2. Creamos un job de exportacion (con una demora de prueba de 20s activada
+   solo para esta prueba, via EXPORT_WORKER_TEST_DELAY, para tener tiempo
+   de atraparlo en estado running).
+3. Apenas el job quedo en status=running, identificamos que contenedor lo
+   tenia (deploy-export-worker-1) y le hicimos docker kill.
+4. Esperamos a que venza el heartbeat (15s) y el otro worker lo detecte.
+
+Resultado obtenido:
+- job-9cab8c9a tomado primero por worker 3652aae772fe-1 (deploy-export-worker-1)
+- docker kill a deploy-export-worker-1 a las 2026-11-15T22:09:53Z
+- El worker sobreviviente (08c2bcb88d3f-1 / deploy-export-worker-2) detecto
+  el job huerfano (heartbeat vencido) y lo retomo a las 22:10:07Z
+- El job termino en status=done, con download_url valida
+
+Nota: el diseno original de export-svc usaba un BRPOP simple sin mecanismo
+de reencolado (si un worker moria, el job se perdia para siempre, ya habia
+salido de la cola). Se corrigio implementando el patron cola-principal +
+cola-en-proceso (BRPOPLPUSH) con un heartbeat por job (TTL 15s) que cualquier
+worker revisa antes de tomar un job nuevo, devolviendo a la cola los que
+quedaron huerfanos. Esto se documenta como hallazgo/mejora real sobre el
+diseno de B2.3.

@@ -1,0 +1,2 @@
+[deploy-search-svc-1] {"level": "info", "message": "reindexado", "repo": "admin/demo-cna", "event_id": "c3-logs-0001", "request_id": "req-correlacion-logs-0001", "timestamp": "2026-11-16T02:34:03.785697+00:00", "service": "search-svc"}
+[deploy-event-bridge-1] {"level": "info", "message": "publicado gitea.push", "event_id": "c3-logs-0001", "request_id": "req-correlacion-logs-0001", "timestamp": "2026-11-16T02:34:00.939923+00:00", "service": "event-bridge"}

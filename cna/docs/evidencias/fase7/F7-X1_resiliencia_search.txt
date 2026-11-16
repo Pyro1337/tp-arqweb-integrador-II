@@ -1,0 +1,29 @@
+Experimento X1 - docker kill del contenedor de S1 (search-svc)
+
+Hipotesis: si matamos el contenedor de search-svc con SIGKILL, Gitea
+(el monolito) sigue respondiendo 200 OK, /v2/search responde 503 JSON
+de forma inmediata, y el sistema se recupera solo sin intervencion manual.
+
+Procedimiento:
+1. date -u -> kill del contenedor
+2. Verificacion inmediata desde VM-1 contra el gateway
+3. Polling cada 10s hasta que vuelva sano
+
+Resultado obtenido:
+- docker kill deploy-search-svc-1 a las 2026-11-15T22:03:01.995Z
+- Gitea: HTTP 200 (sigue vivo, sin degradacion)
+- /v2/search via gateway: HTTP 503 con JSON {"error":"service_unavailable",...}
+- Recuperacion: el watchdog (cron cada 1 min, ver nota abajo) lo detecto y
+  reinicio a las 2026-11-15T22:03:05.01Z
+
+MTTR medido: ~3 segundos
+
+Nota - hallazgo importante: el restart policy nativo de Docker
+(restart: unless-stopped, probamos tambien con 'always') NO se aplico
+automaticamente en este entorno tras un docker kill (confirmado con
+'docker events', nunca aparecio un evento de restart y RestartCount
+quedo en 0). Como mitigacion, se armo un watchdog externo
+(cna/deploy/watchdog.sh) via cron de usuario que revisa cada minuto
+los contenedores del proyecto y reinicia los que esten en Exited.
+Este hallazgo se documenta tambien en el registro de seguridad/riesgos
+de C4.

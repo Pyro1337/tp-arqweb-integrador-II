@@ -1,0 +1,30 @@
+Experimento X4 - apagar VM-2 completa
+
+Hipotesis: con toda la VM-2 apagada, Gitea (el monolito en VM-1) sigue
+operativo (CA-5), y al prender VM-2 de nuevo el sistema converge solo
+sin intervencion manual.
+
+Procedimiento:
+1. VBoxManage controlvm cna-node1 poweroff (apagado total, no shutdown
+   prolijo, para simular una caida real de nodo)
+2. Verificacion desde VM-1 contra el gateway
+3. VBoxManage startvm cna-node1 --type headless
+4. Esperar boot, revisar si los 11 contenedores vuelven solos
+
+Resultado obtenido:
+- Apagado: 2026-11-15T22:11:37Z
+- Con VM-2 apagada: Gitea respondio HTTP 200, /v2/search respondio 503 JSON
+- Encendido: 2026-11-15T22:11:50Z
+- Al verificar la convergencia, 7 de 11 contenedores volvieron solos
+  (los que tenian restart: unless-stopped bien configurado: nats,
+  event-bridge, search-svc, audit-svc, export-svc, media-svc, export-worker)
+- Los otros 4 (meilisearch, minio, audit-db, export-redis) NO volvieron:
+  se detecto que les faltaba la directiva restart en el docker-compose.yml
+  (quedo sin agregar por error al momento de armar el compose original)
+- Se corrigio el docker-compose.yml agregando restart: unless-stopped a
+  los 4 servicios faltantes, y se re-desplego
+- Resultado final: los 11 contenedores quedaron healthy
+
+Este es un hallazgo real de B3/B5 (contenerizacion y orquestacion) que
+quedo expuesto recien al hacer este experimento de caos, y ya esta
+corregido en el repositorio.
