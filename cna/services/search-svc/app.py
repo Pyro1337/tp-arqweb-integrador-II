@@ -4,16 +4,22 @@ import logging
 import sys
 import asyncio
 import time
+import re
+from uuid import uuid4
 from datetime import datetime, timezone
 
 import httpx
 import nats
+from resilience import GiteaResilience, wait_for_task
+from token_source import gitea_headers
+
 from nats.js.api import ConsumerConfig
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
 
 from opentelemetry import trace, propagate
+from opentelemetry.trace import Status, StatusCode
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource
@@ -40,6 +46,9 @@ MEILI_URL = os.environ.get("MEILI_URL", "http://meilisearch:7700")
 MEILI_KEY = os.environ.get("MEILI_KEY", "masterKey123")
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
 INDEX = "gitea_content"
+MEILI_TASK_TIMEOUT = 4.0
+# Bound queueing + upstream retries + indexing/polling + ACK below ack_wait=10.
+HANDLER_TIMEOUT = 9.0
 
 # timeout corto a proposito: si Gitea tarda mas que esto (ej. con latencia de red
 # artificial), queremos que falle rapido en vez de quedarse colgado ocupando el hilo
@@ -68,62 +77,22 @@ async def metrics_middleware(request: Request, call_next):
     return response
 
 
-class CircuitBreaker:
-    """Circuit breaker simple: tras N fallas seguidas, se 'abre' y rechaza
-    llamadas sin siquiera intentarlas durante COOLDOWN segundos, para no
-    saturar hilos/conexiones contra un servicio que ya sabemos que esta lento o caido."""
-
-    def __init__(self, threshold, cooldown):
-        self.threshold = threshold
-        self.cooldown = cooldown
-        self.failures = 0
-        self.opened_at = None
-
-    def is_open(self):
-        if self.opened_at is None:
-            return False
-        if time.monotonic() - self.opened_at >= self.cooldown:
-            # paso el cooldown: dejamos pasar un intento de prueba (half-open)
-            self.opened_at = None
-            self.failures = 0
-            return False
-        return True
-
-    def record_success(self):
-        self.failures = 0
-        self.opened_at = None
-
-    def record_failure(self):
-        self.failures += 1
-        if self.failures >= self.threshold:
-            self.opened_at = time.monotonic()
+gitea = GiteaResilience(request_timeout=GITEA_TIMEOUT,
+                        failure_threshold=CIRCUIT_FAILURE_THRESHOLD, cooldown=CIRCUIT_COOLDOWN)
 
 
-gitea_circuit = CircuitBreaker(CIRCUIT_FAILURE_THRESHOLD, CIRCUIT_COOLDOWN)
+def correlation_headers(request_id):
+    headers = {"X-Request-ID": request_id} if request_id else {}
+    propagate.inject(headers)
+    return headers
 
 
-async def get_repo_con_reintentos(client, repo):
-    """Llama a la API de Gitea con timeout corto, backoff exponencial (3 intentos:
-    0.5s, 1s, 2s de espera entre reintentos) y circuit breaker."""
-    if gitea_circuit.is_open():
-        jlog(level="warning", message="circuito abierto, no se intenta llamar a Gitea", repo=repo)
-        raise RuntimeError("circuit_open")
+async def get_repo_con_reintentos(client, repo, request_id=None):
+    # Resolve inside each attempt; an explicit invalid file must fail closed.
+    def headers():
+        return {**correlation_headers(request_id), **gitea_headers(GITEA_TOKEN)}
 
-    headers = {"Authorization": f"token {GITEA_TOKEN}"} if GITEA_TOKEN else {}
-    delays = [0.5, 1, 2]
-    last_exc = None
-    for attempt, delay in enumerate([0] + delays):
-        if delay:
-            await asyncio.sleep(delay)
-        try:
-            resp = await client.get(f"{GITEA_URL}/api/v1/repos/{repo}", headers=headers, timeout=GITEA_TIMEOUT)
-            gitea_circuit.record_success()
-            return resp
-        except Exception as e:
-            last_exc = e
-            jlog(level="warning", message=f"timeout/error llamando a Gitea, intento {attempt + 1}: {e}", repo=repo)
-    gitea_circuit.record_failure()
-    raise last_exc
+    return await gitea.get(client, f"{GITEA_URL}/api/v1/repos/{repo}", headers=headers)
 
 
 def jlog(**kwargs):
@@ -147,12 +116,34 @@ async def ensure_index():
 
 
 async def handle_push(msg):
-    envelope = json.loads(msg.data.decode())
+    try:
+        envelope = json.loads(msg.data.decode())
+        if not isinstance(envelope, dict):
+            raise ValueError("invalid event envelope")
+    except (UnicodeError, ValueError):
+        jlog(level="error", message="sobre de evento invalido, no ack")
+        return
     # continuamos la misma traza que arranco event-bridge, usando el traceparent
     # que viajo adentro del sobre del evento
-    ctx = propagate.extract(envelope.get("trace_context", {}))
-    with tracer.start_as_current_span("search-svc.handle_push", context=ctx):
-        await _handle_push_impl(msg, envelope)
+    legacy = envelope.get("headers")
+    legacy = {str(k).lower(): v for k, v in legacy.items()} if isinstance(legacy, dict) else {}
+    request_id = (envelope.get("request_id") or envelope.get("X-Request-ID")
+                  or legacy.get("x-request-id"))
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", request_id):
+        request_id = uuid4().hex
+    envelope["request_id"] = request_id
+    carrier = envelope.get("trace_context")
+    if not isinstance(carrier, dict):
+        carrier = {key: envelope.get(key) or legacy.get(key)
+                   for key in ("traceparent", "tracestate")}
+    ctx = propagate.extract(carrier)
+    with tracer.start_as_current_span("search-svc.handle_push", context=ctx,
+                                      record_exception=False, set_status_on_exception=False) as span:
+        try:
+            await asyncio.wait_for(_handle_push_impl(msg, envelope), HANDLER_TIMEOUT)
+        except asyncio.TimeoutError:
+            span.set_status(Status(StatusCode.ERROR))
+            jlog(level="error", message="plazo de procesamiento vencido, no ack")
 
 
 async def _handle_push_impl(msg, envelope):
@@ -161,15 +152,15 @@ async def _handle_push_impl(msg, envelope):
         if event_id in seen_events:
             await msg.ack()
             return
-        seen_events.add(event_id)
 
         repo = envelope["payload"]["repo"]
         request_id = envelope.get("request_id")
 
-        with tracer.start_as_current_span("search-svc.consultar_gitea_api"):
+        with tracer.start_as_current_span("search-svc.consultar_gitea_api", record_exception=False,
+                                          set_status_on_exception=False):
             async with httpx.AsyncClient() as client:
-                resp = await get_repo_con_reintentos(client, repo)
-                data = resp.json() if resp.status_code == 200 else {}
+                resp = await get_repo_con_reintentos(client, repo, request_id)
+                data = resp.json()
 
         doc = {
             "id": repo.replace("/", "_"),
@@ -179,15 +170,23 @@ async def _handle_push_impl(msg, envelope):
             "url": data.get("html_url", f"{GITEA_URL}/{repo}"),
             "description": data.get("description", ""),
         }
-        with tracer.start_as_current_span("search-svc.indexar_meilisearch"):
+        with tracer.start_as_current_span("search-svc.indexar_meilisearch", record_exception=False,
+                                          set_status_on_exception=False):
             async with httpx.AsyncClient() as client:
-                await client.post(f"{MEILI_URL}/indexes/{INDEX}/documents", json=[doc],
-                                   headers=await meili_headers(), timeout=5)
+                headers = {**(await meili_headers()), **correlation_headers(request_id)}
+                response = await client.post(f"{MEILI_URL}/indexes/{INDEX}/documents", json=[doc],
+                                             headers=headers, timeout=5)
+                response.raise_for_status()
+                task_uid = response.json()["taskUid"]
+                await wait_for_task(client, f"{MEILI_URL}/tasks/{task_uid}",
+                                    headers, MEILI_TASK_TIMEOUT)
 
-        jlog(level="info", message="reindexado", repo=repo, event_id=event_id, request_id=request_id)
         await msg.ack()
-    except Exception as e:
-        jlog(level="error", message=f"fallo al procesar evento, no ack: {e}")
+        seen_events.add(event_id)
+        jlog(level="info", message="reindexado", repo=repo, event_id=event_id, request_id=request_id)
+    except Exception:
+        trace.get_current_span().set_status(Status(StatusCode.ERROR))
+        jlog(level="error", message="fallo al procesar evento, no ack")
         # no hacemos ack -> queda para reintento / DLQ segun configuracion del stream
 
 
@@ -211,6 +210,15 @@ async def startup():
             await asyncio.sleep(2)
     else:
         jlog(level="error", message="no se pudo suscribir a gitea.push tras 10 intentos")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global nc
+    connection, nc = nc, None
+    ready.update(meili=False, nats=False)
+    if connection is not None and not connection.is_closed:
+        await connection.close()
 
 
 @app.get("/healthz")

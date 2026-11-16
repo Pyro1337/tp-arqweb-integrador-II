@@ -5,13 +5,21 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "10s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "timeseries",
       "title": "Rate - peticiones por segundo, por servicio",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum(rate(http_requests_total[1m])) by (job)",
@@ -23,7 +31,12 @@
       "id": 2,
       "type": "timeseries",
       "title": "Errors - tasa de 5xx por servicio",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m])) by (job)",
@@ -35,7 +48,12 @@
       "id": 3,
       "type": "timeseries",
       "title": "Duration - latencia p50/p95/p99",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
@@ -55,17 +73,30 @@
       "id": 4,
       "type": "stat",
       "title": "Mensajes en DLQ",
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
-        { "expr": "dlq_messages_total" }
+        {
+          "expr": "dlq_messages_total"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         }
@@ -75,9 +106,82 @@
       "id": 5,
       "type": "stat",
       "title": "Jobs de exportacion acumulados",
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
       "targets": [
-        { "expr": "export_jobs_total" }
+        {
+          "expr": "export_jobs_total"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Colas: esperando entrega",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "queue_waiting_messages",
+          "legendFormat": "{{queue}}{{broker}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Colas: entregados sin ACK",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "queue_inflight_messages",
+          "legendFormat": "{{queue}}{{broker}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Captura de metadatos de colas (1=OK)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "queue_collector_up",
+          "legendFormat": "{{queue}}{{broker}}",
+          "refId": "A"
+        }
       ]
     }
   ]

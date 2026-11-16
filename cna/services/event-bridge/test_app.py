@@ -3,11 +3,13 @@ os.environ.setdefault("WEBHOOK_SECRET", "test-secret")
 
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 import app as app_module
 
 
 def make_client():
     app_module.nc = AsyncMock()
+    app_module.js = SimpleNamespace(publish=AsyncMock(return_value=SimpleNamespace(stream="EVENTS", seq=1)))
     return TestClient(app_module.app)
 
 

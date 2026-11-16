@@ -53,6 +53,7 @@ services:
 
   export-redis:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - redis-data:/data
     healthcheck:
@@ -91,6 +92,7 @@ services:
     restart: unless-stopped
     environment:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      DLQ_READ_TOKEN: ${DLQ_READ_TOKEN:-}
       NATS_URL: nats://nats:4222
       JAEGER_OTLP_ENDPOINT: jaeger:4317
     ports:
@@ -221,6 +223,26 @@ services:
       resources:
         limits:
           memory: 256M
+
+  queue-metrics:
+    build:
+      context: ../observability
+      dockerfile: Dockerfile.queues
+    image: queue-metrics:1.0.0
+    read_only: true
+    restart: unless-stopped
+    environment:
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://export-redis:6379/0
+    depends_on:
+      nats:
+        condition: service_healthy
+      export-redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 96M
 
   prometheus:
     image: prom/prometheus:v2.54.1

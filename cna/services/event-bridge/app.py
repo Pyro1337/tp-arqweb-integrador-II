@@ -1,4 +1,5 @@
 import os
+import hmac
 import json
 import uuid
 import logging
@@ -6,8 +7,9 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import Response
+from newdlq import DurableDLQ, SOURCE_MAX_MSG_BYTES, validate_transport
 from prometheus_client import Counter, Histogram, Gauge, CONTENT_TYPE_LATEST, generate_latest
 import nats
 
@@ -42,7 +44,8 @@ log = logging.getLogger("event-bridge")
 app = FastAPI(title="event-bridge")
 FastAPIInstrumentor.instrument_app(app)
 nc = None
-dlq_events = []
+js = None
+dlq = None
 
 
 @app.middleware("http")
@@ -62,35 +65,52 @@ def jlog(**kwargs):
     log.info(json.dumps(kwargs))
 
 
-async def on_max_deliveries(msg):
-    # advisory que NATS emite cuando un consumidor supera max_deliver: lo tratamos como DLQ
-    try:
-        advisory = json.loads(msg.data.decode())
-    except Exception:
-        advisory = {"raw": msg.data.decode(errors="ignore")}
-    entry = {"received_at": datetime.now(timezone.utc).isoformat(), "advisory": advisory}
-    dlq_events.append(entry)
-    DLQ_MESSAGES.set(len(dlq_events))
-    jlog(level="warning", message="mensaje movido a DLQ (max_deliver superado)", advisory=advisory)
-
-
 @app.on_event("startup")
 async def startup():
-    global nc
-    nc = await nats.connect(NATS_URL)
-    js = nc.jetstream()
+    global nc, js, dlq
+    nc, js, dlq = None, None, None
     try:
-        await js.add_stream(name="EVENTS", subjects=["gitea.*", "export.*", "media.*"])
-    except Exception as e:
-        jlog(level="info", message=f"stream ya existia o no se pudo crear: {e}")
-    # advisories de JetStream cuando un consumidor agota los reintentos (nuestra DLQ)
-    await nc.subscribe("$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>", cb=on_max_deliveries)
-    jlog(level="info", message="conectado a NATS, stream EVENTS listo, escuchando DLQ")
+        nc = await nats.connect(NATS_URL)
+        js = nc.jetstream()
+        dlq = DurableDLQ(js)
+        await validate_transport(nc)
+        await dlq.setup()
+    except Exception:
+        if dlq is not None:
+            dlq.ready = False
+        if nc is not None:
+            try:
+                await nc.close()
+            except Exception:
+                pass
+        jlog(level="error", message="broker resources unavailable")
+        raise RuntimeError("broker resources unavailable") from None
+    jlog(level="info", message="JetStream durable resources ready")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if dlq is not None:
+        dlq.ready = False
+    if nc is not None:
+        await nc.close()  # Keep the broker's durable consumer and streams intact.
 
 
 @app.get("/dlq")
-async def get_dlq():
-    return {"total": len(dlq_events), "items": dlq_events}
+async def get_dlq(request: Request, limit: int = Query(default=50, ge=1, le=100)):
+    token = os.environ.get("DLQ_READ_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="DLQ inspection disabled")
+    supplied = request.headers.get("X-DLQ-Token", "")
+    if not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        if dlq is None or nc is None or not nc.is_connected:
+            raise RuntimeError("DLQ unavailable")
+        return await dlq.read(limit=limit)
+    except Exception:
+        jlog(level="warning", message="lectura DLQ no disponible")
+        raise HTTPException(status_code=503, detail="DLQ no disponible") from None
 
 
 def build_envelope(event_type: str, payload: dict, request_id: str, delivery_id: str) -> dict:
@@ -121,13 +141,25 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    if nc is None or not nc.is_connected:
-        raise HTTPException(status_code=503, detail="nats no disponible")
+    try:
+        if nc is None or not nc.is_connected or js is None or dlq is None or not dlq.ready:
+            raise RuntimeError("broker resources unavailable")
+        await dlq.check_resources()
+        await validate_transport(nc)
+    except Exception:
+        raise HTTPException(status_code=503, detail="broker resources unavailable") from None
     return {"status": "ready"}
 
 
 @app.get("/metrics")
 async def metrics():
+    try:
+        if js is None or nc is None or not nc.is_connected:
+            raise RuntimeError("DLQ depth unavailable")
+        DLQ_MESSAGES.set((await js.stream_info("BRIDGE_DLQ")).state.messages)
+    except Exception:
+        # Unknown broker state is not an empty DLQ. Keep the dashboard metric name.
+        DLQ_MESSAGES.set(float("nan"))
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -164,6 +196,17 @@ async def webhook(secret: str, request: Request):
         return {"status": "ignored", "event": gitea_event}
 
     envelope = build_envelope(subject, payload, request_id, delivery_id)
-    await nc.publish(subject, json.dumps(envelope).encode())
+    encoded = json.dumps(envelope).encode()
+    if len(encoded) > SOURCE_MAX_MSG_BYTES:
+        raise HTTPException(status_code=413, detail="event envelope too large")
+    try:
+        if js is None:
+            raise RuntimeError("JetStream unavailable")
+        ack = await js.publish(subject, encoded, timeout=2)
+        if ack is None or ack.stream != "EVENTS" or type(ack.seq) is not int or ack.seq <= 0:
+            raise RuntimeError("missing PubAck")
+    except Exception:
+        jlog(level="warning", message="publicacion no confirmada", request_id=request_id)
+        raise HTTPException(status_code=503, detail="publicacion no confirmada") from None
     jlog(level="info", message=f"publicado {subject}", event_id=envelope["event_id"], request_id=request_id)
     return {"status": "published", "event_id": envelope["event_id"]}

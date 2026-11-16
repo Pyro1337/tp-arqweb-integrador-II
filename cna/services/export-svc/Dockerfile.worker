@@ -8,6 +8,6 @@ RUN useradd -r -u 1001 appuser
 WORKDIR /app
 COPY --from=base /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=base /usr/local/bin /usr/local/bin
-COPY worker.py .
+COPY worker.py queue_helpers.py token_source.py ./
 USER appuser
 CMD ["python", "worker.py"]

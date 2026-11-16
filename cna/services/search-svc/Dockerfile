@@ -8,7 +8,7 @@ RUN useradd -r -u 1001 appuser
 WORKDIR /app
 COPY --from=base /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=base /usr/local/bin /usr/local/bin
-COPY app.py .
+COPY app.py resilience.py token_source.py ./
 USER appuser
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
 EXPOSE 8000

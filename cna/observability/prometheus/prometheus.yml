@@ -26,6 +26,10 @@ scrape_configs:
     static_configs:
       - targets: ["media-svc:8000"]
 
+  - job_name: queue-metrics
+    static_configs:
+      - targets: ["queue-metrics:8000"]
+
 alerting:
   alertmanagers:
     - static_configs:

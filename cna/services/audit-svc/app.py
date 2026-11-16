@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 import time
+import re
 from datetime import datetime, timezone
 
 import asyncio
@@ -14,17 +15,19 @@ from fastapi.responses import Response
 from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
 
 from opentelemetry import trace, propagate
+from opentelemetry.trace import Status, StatusCode
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-JAEGER_OTLP_ENDPOINT = os.environ.get("JAEGER_OTLP_ENDPOINT", "jaeger:4317")
+JAEGER_OTLP_ENDPOINT = os.environ.get("JAEGER_OTLP_ENDPOINT", "")
 trace.set_tracer_provider(TracerProvider(resource=Resource.create({"service.name": "audit-svc"})))
-trace.get_tracer_provider().add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(endpoint=JAEGER_OTLP_ENDPOINT, insecure=True))
-)
+if JAEGER_OTLP_ENDPOINT:
+    trace.get_tracer_provider().add_span_processor(
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=JAEGER_OTLP_ENDPOINT, insecure=True))
+    )
 tracer = trace.get_tracer("audit-svc")
 
 REQUEST_COUNT = Counter(
@@ -69,13 +72,27 @@ def jlog(**kwargs):
 
 
 async def handle_event(msg):
-    envelope = json.loads(msg.data.decode())
-    ctx = propagate.extract(envelope.get("trace_context", {}))
-    with tracer.start_as_current_span("audit-svc.handle_event", context=ctx):
+    try:
+        envelope = json.loads(msg.data.decode())
+        if not isinstance(envelope, dict):
+            raise ValueError("invalid envelope")
+        carrier = envelope.get("trace_context", {})
+        ctx = propagate.extract(carrier if isinstance(carrier, dict) else {})
+    except Exception:
+        jlog(level="error", message="evento invalido, no ack")
+        return
+    with tracer.start_as_current_span("audit-svc.handle_event", context=ctx,
+                                      record_exception=False) as span:
         await _handle_event_impl(msg, envelope)
 
 
 async def _handle_event_impl(msg, envelope):
+    request_id = envelope.get("request_id")
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", request_id):
+        request_id = None
+    span = trace.get_current_span()
+    correlation = {"request_id": request_id,
+                   "trace_id": f"{span.get_span_context().trace_id:032x}"}
     try:
         async with pool.acquire() as conn:
             inserted = await conn.fetchval(
@@ -94,12 +111,13 @@ async def _handle_event_impl(msg, envelope):
                 json.dumps(envelope),
             )
         if inserted:
-            jlog(level="info", message="registro guardado", event_id=envelope["event_id"])
+            jlog(level="info", message="registro guardado", **correlation)
         else:
-            jlog(level="info", message="evento duplicado, ignorado (idempotencia)", event_id=envelope["event_id"])
+            jlog(level="info", message="evento duplicado, ignorado (idempotencia)", **correlation)
         await msg.ack()
-    except Exception as e:
-        jlog(level="error", message=f"fallo al procesar evento: {e}")
+    except Exception:
+        span.set_status(Status(StatusCode.ERROR))
+        jlog(level="error", message="fallo al procesar evento, no ack", **correlation)
 
 
 @app.on_event("startup")

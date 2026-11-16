@@ -1,5 +1,11 @@
 # C5 - Matriz consolidada de pruebas (P26 en adelante)
 
+> **Alcance histórico:** las filas siguientes conservan el resultado declarado por
+> el equipo antes de la integración de resiliencia/DLQ/Streams. No certifican las
+> fuentes ni imágenes nuevas. P45, P51, P53, P55 y P57–P62 deben revalidarse según
+> [Mejoras y aceptación pendiente](MEJORAS_Y_VALIDACION_PENDIENTE.md). Que una fila
+> tenga archivo no implica aceptación docente ni elimina limitaciones registradas.
+
 Esta matriz continúa la Tabla 5 del TP I, con las pruebas de las Fases 5, 6 y 7
 del TP II (P26 a P62), tal como pide la consigna en la sección 8. Cada fila
 apunta al archivo de evidencia real dentro de este repo, con el resultado

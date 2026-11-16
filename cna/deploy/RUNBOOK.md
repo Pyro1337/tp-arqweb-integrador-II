@@ -1,5 +1,11 @@
 # Runbook de despliegue — Bloque II
 
+> Antes de actualizar una instalación existente: revisar
+> [mejoras y aceptación pendiente](../docs/MEJORAS_Y_VALIDACION_PENDIENTE.md).
+> Streams NATS incompatibles fallan cerrado y las colas legacy de Redis se deben
+> drenar con la versión vieja antes del corte; no se migran/borran automáticamente.
+> Los siguientes pasos son para laboratorio autorizado, no para el VPS de producción.
+
 ## 0. Variables que vas a necesitar a mano
 - IP de VM-1 (gitea): la que ya tenés (`ip addr` en VM-1).
 - IP de VM-2 (la clonás en el paso 1): anotala apenas la tengas, se usa en todos los pasos siguientes.
@@ -85,10 +91,10 @@ Guardalo y probá "Test Delivery". Evidencia **F6-E11**.
 ## 9. Gateway en VM-1 (B5)
 
 ```bash
-# copiar cna/deploy/nginx-api.gitea.local.conf a VM-1, reemplazando VM2_IP por la IP real
-sudo cp nginx-api.gitea.local.conf /etc/nginx/sites-available/api.gitea.local
-sudo sed -i 's/VM2_IP/IP_DE_VM2/g' /etc/nginx/sites-available/api.gitea.local
-sudo ln -s /etc/nginx/sites-available/api.gitea.local /etc/nginx/sites-enabled/
+# Copiar el archivo real y editar los upstreams/hostname/rutas TLS para el laboratorio.
+sudo cp nginx-api.equipo01.arqweb.test.conf /etc/nginx/sites-available/api.equipo01.arqweb.test
+sudoedit /etc/nginx/sites-available/api.equipo01.arqweb.test
+sudo ln -s /etc/nginx/sites-available/api.equipo01.arqweb.test /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```

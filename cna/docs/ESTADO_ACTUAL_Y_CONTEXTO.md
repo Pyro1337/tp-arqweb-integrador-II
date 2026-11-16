@@ -1,5 +1,10 @@
 # Estado actual del proyecto — contexto para seguir con la Fase 7
 
+> Documento histórico de cierre del Bloque II. La Fase 7 ya tiene evidencia del
+> equipo en este repositorio. Para los cambios de fuente posteriores y su estado
+> de aceptación consultar [Mejoras y validación pendiente](MEJORAS_Y_VALIDACION_PENDIENTE.md)
+> y la matriz C5; las listas «todavía no existe» de abajo describen ese momento.
+
 Este archivo es para que cualquiera del equipo pueda retomar el trabajo sin tener que preguntar todo de nuevo. Lo escribo al cierre del Bloque II, antes de arrancar la Fase 7.
 
 ## 1. Qué app elegimos y por qué

@@ -1,0 +1,25 @@
+# Optional: enroll once after draining legacy export queues; subsequent token
+# rotations replace secrets/gitea/token atomically without recreating containers.
+services:
+  search-svc:
+    environment:
+      GITEA_TOKEN: ""
+      GITEA_TOKEN_FILE: /run/secrets/gitea/token
+    volumes:
+      - type: bind
+        source: ./secrets/gitea
+        target: /run/secrets/gitea
+        read_only: true
+        bind:
+          create_host_path: false
+  export-worker:
+    environment:
+      GITEA_TOKEN: ""
+      GITEA_TOKEN_FILE: /run/secrets/gitea/token
+    volumes:
+      - type: bind
+        source: ./secrets/gitea
+        target: /run/secrets/gitea
+        read_only: true
+        bind:
+          create_host_path: false

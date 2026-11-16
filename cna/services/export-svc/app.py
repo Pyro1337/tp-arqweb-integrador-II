@@ -10,6 +10,7 @@ import redis.asyncio as redis
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
+from queue_helpers import CREATE_JOB, STREAM, IO_TIMEOUT, LEGACY_QUEUE, LEGACY_PROCESSING, LEGACY_PREFLIGHT
 from prometheus_client import Counter, Histogram, Gauge, CONTENT_TYPE_LATEST, generate_latest
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://export-redis:6379/0")
@@ -55,7 +56,19 @@ class ExportRequest(BaseModel):
 @app.on_event("startup")
 async def startup():
     global r
-    r = redis.from_url(REDIS_URL, decode_responses=True)
+    r = redis.from_url(REDIS_URL, decode_responses=True,
+                       socket_timeout=IO_TIMEOUT, socket_connect_timeout=IO_TIMEOUT)
+    try:
+        await r.eval(LEGACY_PREFLIGHT, 2, LEGACY_QUEUE, LEGACY_PROCESSING)
+    except Exception:
+        await r.aclose()
+        raise RuntimeError("export queue preflight failed: check legacy backlog and Redis") from None
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if r is not None:
+        await r.aclose()
 
 
 @app.get("/healthz")
@@ -67,6 +80,7 @@ async def healthz():
 async def readyz():
     try:
         await r.ping()
+        await r.eval(LEGACY_PREFLIGHT, 2, LEGACY_QUEUE, LEGACY_PROCESSING)
     except Exception:
         raise HTTPException(status_code=503, detail="redis no disponible")
     return {"status": "ready"}
@@ -84,9 +98,12 @@ async def create_export(req: ExportRequest):
     if req.format not in ("csv", "pdf"):
         raise HTTPException(status_code=400, detail="formato invalido")
     job_id = f"job-{uuid.uuid4().hex[:8]}"
-    job = {"job_id": job_id, "status": "queued", "repo": req.repo, "format": req.format, "scope": req.scope}
-    await r.set(f"job:{job_id}", json.dumps(job))
-    await r.lpush("export_queue", job_id)
+    job = {"job_id": job_id, "status": "queued", "repo": req.repo, "format": req.format, "scope": req.scope, "attempts": 0}
+    try:
+        await r.eval(CREATE_JOB, 4, f"job:{job_id}", STREAM,
+                     LEGACY_QUEUE, LEGACY_PROCESSING, job_id, json.dumps(job))
+    except Exception:
+        raise HTTPException(status_code=503, detail="export queue unavailable") from None
     jlog(level="info", message="job encolado", job_id=job_id)
     return job
 

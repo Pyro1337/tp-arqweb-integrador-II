@@ -1,0 +1,7 @@
+-r services/search-svc/requirements-dev.txt
+-r services/event-bridge/requirements-dev.txt
+-r services/audit-svc/requirements-dev.txt
+-r services/export-svc/requirements-dev.txt
+-r services/media-svc/requirements-dev.txt
+-r observability/requirements-exporter.txt
+pyyaml==6.0.2
